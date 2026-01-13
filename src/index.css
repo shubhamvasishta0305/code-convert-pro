@@ -1,85 +1,67 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
-
 @layer base {
   :root {
-    --background: 0 0% 100%;
+    --background: 210 40% 98%;
     --foreground: 222.2 84% 4.9%;
-
     --card: 0 0% 100%;
     --card-foreground: 222.2 84% 4.9%;
-
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
-
     --primary: 222.2 47.4% 11.2%;
     --primary-foreground: 210 40% 98%;
-
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
-
     --muted: 210 40% 96.1%;
     --muted-foreground: 215.4 16.3% 46.9%;
-
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-
+    --accent: 217.2 91.2% 59.8%;
+    --accent-foreground: 0 0% 100%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-
-    --radius: 0.5rem;
-
+    --ring: 217.2 91.2% 59.8%;
+    --radius: 0.75rem;
     --sidebar-background: 0 0% 98%;
-
     --sidebar-foreground: 240 5.3% 26.1%;
-
     --sidebar-primary: 240 5.9% 10%;
-
     --sidebar-primary-foreground: 0 0% 98%;
-
     --sidebar-accent: 240 4.8% 95.9%;
-
     --sidebar-accent-foreground: 240 5.9% 10%;
-
     --sidebar-border: 220 13% 91%;
-
     --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* LMS Custom Variables */
+    --lms-primary: 222 47% 11%;
+    --lms-primary-light: 217 33% 17%;
+    --lms-accent: 217 91% 60%;
+    --lms-bg: 210 40% 98%;
+    --lms-text: 215 25% 27%;
+    --lms-success: 160 84% 39%;
+    --lms-danger: 0 84% 60%;
   }
 
   .dark {
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
-
     --card: 222.2 84% 4.9%;
     --card-foreground: 210 40% 98%;
-
     --popover: 222.2 84% 4.9%;
     --popover-foreground: 210 40% 98%;
-
     --primary: 210 40% 98%;
     --primary-foreground: 222.2 47.4% 11.2%;
-
     --secondary: 217.2 32.6% 17.5%;
     --secondary-foreground: 210 40% 98%;
-
     --muted: 217.2 32.6% 17.5%;
     --muted-foreground: 215 20.2% 65.1%;
-
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-
+    --accent: 217.2 91.2% 59.8%;
+    --accent-foreground: 0 0% 100%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
-
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
     --ring: 212.7 26.8% 83.9%;
@@ -91,6 +73,12 @@ All colors MUST be HSL.
     --sidebar-accent-foreground: 240 4.8% 95.9%;
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* LMS Dark Mode */
+    --lms-primary: 217 33% 17%;
+    --lms-primary-light: 222 47% 11%;
+    --lms-bg: 222 84% 5%;
+    --lms-text: 210 40% 98%;
   }
 }
 
@@ -98,8 +86,91 @@ All colors MUST be HSL.
   * {
     @apply border-border;
   }
-
   body {
     @apply bg-background text-foreground;
+    font-family: 'Poppins', sans-serif;
+    margin: 0;
+  }
+}
+
+/* LMS Component Styles */
+@layer components {
+  .lms-card {
+    @apply bg-white p-8 rounded-2xl shadow-sm mb-8 border border-slate-200 transition-transform duration-200;
+  }
+  
+  .lms-card:hover {
+    @apply -translate-y-0.5 shadow-md;
+  }
+
+  .lms-input {
+    @apply w-full p-3 border-2 border-slate-200 rounded-xl mb-4 outline-none transition-all duration-300 bg-slate-50 box-border;
+  }
+  
+  .lms-input:focus {
+    @apply border-lms-accent bg-white shadow-[0_0_0_3px_rgba(59,130,246,0.2)];
+  }
+
+  .lms-btn {
+    @apply w-full py-3.5 bg-lms-accent text-white border-none rounded-xl cursor-pointer font-semibold text-base transition-all duration-200 shadow-md;
+  }
+  
+  .lms-btn:hover {
+    @apply bg-blue-600 -translate-y-0.5;
+  }
+  
+  .lms-btn:disabled {
+    @apply opacity-70 cursor-not-allowed;
+  }
+
+  /* Module Grid */
+  .module-grid {
+    @apply grid gap-4 py-4;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  }
+
+  .module-box {
+    @apply bg-white border-2 border-slate-200 rounded-xl p-4 text-center cursor-pointer transition-all duration-200;
+  }
+
+  .module-box:hover {
+    @apply border-lms-accent -translate-y-1;
+  }
+
+  .module-box.active {
+    @apply bg-lms-primary text-white border-lms-primary;
+  }
+}
+
+/* Animations */
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  .animate-slide-up {
+    animation: slideUp 0.5s ease-out;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
   }
 }

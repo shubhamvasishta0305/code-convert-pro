@@ -17,6 +17,7 @@ const MainApp: React.FC = () => {
     traineeName: string;
     moduleNum: string;
   } | null>(null);
+  const [refreshTrainee, setRefreshTrainee] = useState(0);
 
   const handleStartAssessment = (
     traineeId: string,
@@ -30,6 +31,12 @@ const MainApp: React.FC = () => {
     setAssessmentData(null);
   };
 
+  const handleCompleteAssessment = () => {
+    setAssessmentData(null);
+    // Trigger refresh of trainee profile
+    setRefreshTrainee((prev) => prev + 1);
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-lms-bg">
       <Sidebar activeNav={activeNav} onNavigate={setActiveNav} />
@@ -38,7 +45,12 @@ const MainApp: React.FC = () => {
         {activeNav === 'dash' && <Dashboard onSelectBatch={() => setActiveNav('users')} />}
         {activeNav === 'create' && <CreateBatch />}
         {activeNav === 'att' && <Attendance />}
-        {activeNav === 'users' && <Trainees onStartAssessment={handleStartAssessment} />}
+        {activeNav === 'users' && (
+          <Trainees 
+            onStartAssessment={handleStartAssessment} 
+            key={refreshTrainee}
+          />
+        )}
         {activeNav === 'reviews' && <Reviews />}
         {activeNav === 'add_trainer' && <AddTrainer />}
       </main>
@@ -49,6 +61,7 @@ const MainApp: React.FC = () => {
           traineeName={assessmentData.traineeName}
           moduleNum={assessmentData.moduleNum}
           onClose={handleCloseAssessment}
+          onComplete={handleCompleteAssessment}
         />
       )}
     </div>

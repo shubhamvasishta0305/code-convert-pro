@@ -1,106 +1,204 @@
-# Einstein360 LMS - Python Backend Setup
+# Einstein360 LMS - Complete Setup Guide
 
-This React frontend expects a Python backend running on `http://localhost:5000`.
+## Project Structure
 
-## Required API Endpoints
-
-Update `src/services/api.ts` to point to your backend URL.
-
-### Authentication
-- `POST /api/auth/login` - Login user
-  - Body: `{ email, password }`
-  - Response: `{ status, user: { id, name, email, role }, message? }`
-
-- `POST /api/auth/register` - Register new user
-  - Body: `{ name, email, password, role }`
-  - Response: `{ status, user, message? }`
-
-- `POST /api/auth/setup` - Complete invited trainer setup
-  - Body: `{ email, password }`
-  - Response: `{ status, user, message? }`
-
-### Trainers
-- `GET /api/trainers` - Get all trainers
-  - Response: `[{ id, name }]`
-
-- `POST /api/trainers/invite` - Invite new trainer
-  - Body: `{ name, email }`
-  - Response: `{ status, message? }`
-
-### Batches
-- `GET /api/batches?userId={id}&role={role}` - Get user's batches
-  - Response: `[{ code, name, trainerId, startDate, endDate, maxCapacity }]`
-
-- `POST /api/batches` - Create batch
-  - Body: `{ batch_code, batch_name, trainer_id, start_date, end_date, max_capacity, trainees }`
-  - Response: `{ status }`
-
-### Trainees
-- `GET /api/trainees?batchCode={code}` - Get trainees by batch
-  - Response: `[{ id, batchCode, name, mobile, email }]`
-
-- `POST /api/trainees` - Add single trainee
-  - Body: `{ batchCode, name, mobile?, email? }`
-  - Response: `{ status }`
-
-- `GET /api/trainees/{id}` - Get trainee details
-  - Response: `{ status, info, stats, modules, curriculum }`
-
-### Attendance
-- `POST /api/attendance` - Save attendance
-  - Body: `{ batch_code, date, records: [{ trainee_id, status }] }`
-  - Response: `{ status }`
-
-### Assessments
-- `GET /api/assessments/questions/{moduleIndex}` - Get questions
-  - Response: `{ questions: [{ question }] }`
-
-- `POST /api/assessments/results` - Save assessment result
-  - Body: `{ traineeId, traineeName, moduleNum, videoData?, audioData? }`
-  - Response: `{ status, attemptCount }`
-
-### Reviews/Grading
-- `GET /api/reviews/pending?userId={id}&role={role}` - Get pending reviews
-  - Response: `[{ resultId, traineeName, moduleNum, videoLink, audioLink, attempt, date }]`
-
-- `POST /api/reviews/grade` - Submit grade
-  - Body: `{ resultId, score }`
-  - Response: `{ status }`
-
-## Example Flask Backend Structure
-
-```python
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-
-app = Flask(__name__)
-CORS(app)
-
-@app.route('/api/auth/login', methods=['POST'])
-def login():
-    data = request.json
-    # Your authentication logic here
-    return jsonify({
-        'status': 'success',
-        'user': {
-            'id': 'USR-123',
-            'name': 'Test User',
-            'email': data['email'],
-            'role': 'Trainer'
-        }
-    })
-
-# Add other endpoints...
-
-if __name__ == '__main__':
-    app.run(port=5000, debug=True)
+```
+einstein360-lms/
+├── src/                          # React Frontend
+│   ├── components/
+│   │   ├── auth/
+│   │   │   ├── LoginForm.tsx
+│   │   │   ├── RegisterForm.tsx
+│   │   │   └── SetupForm.tsx
+│   │   ├── layout/
+│   │   │   └── Sidebar.tsx
+│   │   └── views/
+│   │       ├── Dashboard.tsx
+│   │       ├── CreateBatch.tsx
+│   │       ├── Attendance.tsx
+│   │       ├── Trainees.tsx
+│   │       ├── Reviews.tsx
+│   │       ├── AddTrainer.tsx
+│   │       └── Assessment.tsx
+│   ├── contexts/
+│   │   └── AuthContext.tsx
+│   ├── pages/
+│   │   ├── Index.tsx
+│   │   ├── AuthPage.tsx
+│   │   └── MainApp.tsx
+│   ├── services/
+│   │   └── api.ts                # API calls to Python backend
+│   ├── types/
+│   │   └── lms.ts                # TypeScript interfaces
+│   └── index.css
+├── backend/                       # Python Flask Backend
+│   ├── app.py                     # Main Flask application
+│   └── requirements.txt
+└── README.md
 ```
 
-## Running the Frontend
+## Quick Start
+
+### 1. Start the Python Backend
+
+```bash
+cd backend
+pip install -r requirements.txt
+python app.py
+```
+
+The backend will run at `http://localhost:5000`
+
+**Default Login Credentials:**
+- Email: `admin@einstein360.com`
+- Password: `admin123`
+
+### 2. Start the React Frontend
 
 ```bash
 npm install
 npm run dev
 ```
 
-The app will be available at `http://localhost:8080`
+The frontend will run at `http://localhost:8080`
+
+## API Endpoints
+
+### Authentication
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/auth/login` | Login user |
+| POST | `/api/auth/register` | Register new user |
+| POST | `/api/auth/setup` | Complete invited trainer setup |
+
+### Trainers
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/trainers` | Get all trainers |
+| POST | `/api/trainers/invite` | Invite new trainer |
+
+### Batches
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/batches?userId=X&role=Y` | Get user's batches |
+| POST | `/api/batches` | Create new batch |
+
+### Trainees
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/trainees?batchCode=X` | Get trainees by batch |
+| POST | `/api/trainees` | Add single trainee |
+| GET | `/api/trainees/{id}` | Get trainee details |
+
+### Attendance
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/attendance` | Save attendance records |
+
+### Assessments
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/assessments/questions/{moduleIndex}` | Get questions |
+| POST | `/api/assessments/results` | Save assessment result |
+
+### Reviews/Grading
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/reviews/pending?userId=X&role=Y` | Get pending reviews |
+| POST | `/api/reviews/grade` | Submit grade |
+
+## Features
+
+### For Owners
+- Create batches with trainees
+- Invite and manage trainers
+- View all batches and trainees
+- Grade assessments
+
+### For Trainers
+- View assigned batches
+- Mark attendance
+- View trainee profiles
+- Conduct assessments
+- Grade submissions
+
+### Assessment Flow
+1. Select trainee from list
+2. Select module to assess
+3. Camera & microphone permissions required
+4. Record audio answer
+5. Submit for grading
+
+## Customization
+
+### Connecting to a Database
+Replace the in-memory `db` dictionary in `backend/app.py` with actual database calls:
+
+```python
+# Example with SQLAlchemy
+from flask_sqlalchemy import SQLAlchemy
+
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///lms.db'
+db = SQLAlchemy(app)
+```
+
+### Adding Email Functionality
+In `invite_trainer()`, add actual email sending:
+
+```python
+import smtplib
+from email.mime.text import MIMEText
+
+def send_invite_email(email, name):
+    # Configure SMTP and send email
+    pass
+```
+
+### Cloud Storage for Uploads
+Replace local file storage with S3/GCS:
+
+```python
+import boto3
+
+def upload_to_s3(file_data, filename):
+    s3 = boto3.client('s3')
+    s3.put_object(Bucket='your-bucket', Key=filename, Body=file_data)
+    return f"https://your-bucket.s3.amazonaws.com/{filename}"
+```
+
+## Troubleshooting
+
+### CORS Issues
+Make sure Flask-CORS is properly configured:
+```python
+CORS(app, origins=['http://localhost:8080'])
+```
+
+### Camera/Microphone Not Working
+- Check browser permissions
+- Use HTTPS in production
+
+### API Connection Failed
+1. Verify backend is running on port 5000
+2. Check `src/services/api.ts` BASE_URL
+3. Check browser console for errors
+
+## Production Deployment
+
+### Frontend
+```bash
+npm run build
+# Deploy dist/ folder to Netlify, Vercel, or any static host
+```
+
+### Backend
+```bash
+# Use gunicorn for production
+pip install gunicorn
+gunicorn -w 4 -b 0.0.0.0:5000 app:app
+```
+
+Update `src/services/api.ts` to point to production URL:
+```typescript
+const BASE_URL = 'https://your-api.herokuapp.com/api';
+```
