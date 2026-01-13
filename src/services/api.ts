@@ -1,0 +1,132 @@
+// API Service - Connect this to your Python backend
+// Update BASE_URL to point to your Python server
+
+import type {
+  User,
+  Batch,
+  Trainee,
+  TraineeDetails,
+  PendingReview,
+  LoginResponse,
+  ApiResponse,
+} from '@/types/lms';
+
+const BASE_URL = 'http://localhost:5000/api'; // Update this to your Python backend URL
+
+async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(`${BASE_URL}${endpoint}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...options?.headers,
+    },
+    ...options,
+  });
+  
+  if (!response.ok) {
+    throw new Error(`API Error: ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+// Authentication
+export const loginUser = (email: string, password: string): Promise<LoginResponse> =>
+  request('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+
+export const registerUser = (name: string, email: string, password: string, role: string): Promise<LoginResponse> =>
+  request('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ name, email, password, role }),
+  });
+
+export const completeSetup = (email: string, password: string): Promise<LoginResponse> =>
+  request('/auth/setup', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+
+// Trainers
+export const inviteTrainer = (name: string, email: string): Promise<ApiResponse> =>
+  request('/trainers/invite', {
+    method: 'POST',
+    body: JSON.stringify({ name, email }),
+  });
+
+export const getAllTrainers = (): Promise<Array<{ id: string; name: string }>> =>
+  request('/trainers');
+
+// Batches
+export const getMyBatches = (userId: string, role: string): Promise<Batch[]> =>
+  request(`/batches?userId=${userId}&role=${role}`);
+
+export const createBatch = (data: {
+  batch_code: string;
+  batch_name: string;
+  trainer_id: string;
+  start_date: string;
+  end_date: string;
+  max_capacity: number;
+  trainees: Array<{ name: string; mobile?: string; email?: string }>;
+}): Promise<ApiResponse> =>
+  request('/batches', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+// Trainees
+export const getTraineesByBatch = (batchCode: string): Promise<Trainee[]> =>
+  request(`/trainees?batchCode=${batchCode}`);
+
+export const addSingleTrainee = (data: {
+  batchCode: string;
+  name: string;
+  mobile?: string;
+  email?: string;
+}): Promise<ApiResponse> =>
+  request('/trainees', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+export const getTraineeDetails = (traineeId: string): Promise<{ status: string } & TraineeDetails> =>
+  request(`/trainees/${traineeId}`);
+
+// Attendance
+export const saveAttendance = (data: {
+  batch_code: string;
+  date: string;
+  records: Array<{ trainee_id: string; status: 'P' | 'A' }>;
+}): Promise<ApiResponse> =>
+  request('/attendance', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+// Assessments
+export const getTestSetupData = (moduleIndex: string): Promise<{ questions: Array<{ question: string }> }> =>
+  request(`/assessments/questions/${moduleIndex}`);
+
+export const saveAssessmentResult = (
+  traineeId: string,
+  traineeName: string,
+  moduleNum: string,
+  videoData: { data: string } | null,
+  audioData: { data: string } | null
+): Promise<{ status: string; attemptCount: number }> =>
+  request('/assessments/results', {
+    method: 'POST',
+    body: JSON.stringify({ traineeId, traineeName, moduleNum, videoData, audioData }),
+  });
+
+// Reviews/Grading
+export const getPendingReviews = (userId: string, role: string): Promise<PendingReview[]> =>
+  request(`/reviews/pending?userId=${userId}&role=${role}`);
+
+export const submitGrade = (resultId: string, score: number): Promise<ApiResponse> =>
+  request('/reviews/grade', {
+    method: 'POST',
+    body: JSON.stringify({ resultId, score }),
+  });
