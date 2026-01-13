@@ -7,6 +7,7 @@ interface AssessmentProps {
   traineeName: string;
   moduleNum: string;
   onClose: () => void;
+  onComplete: () => void;
 }
 
 const Assessment: React.FC<AssessmentProps> = ({
@@ -14,52 +15,69 @@ const Assessment: React.FC<AssessmentProps> = ({
   traineeName,
   moduleNum,
   onClose,
+  onComplete,
 }) => {
-  const [question, setQuestion] = useState('Loading Question...');
+  const [questions, setQuestions] = useState<Array<{ question: string }>>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [permissionsGranted, setPermissionsGranted] = useState(false);
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const cameraRecorderRef = useRef<MediaRecorder | null>(null);
+  const cameraChunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
-    loadQuestion();
-    setupCamera();
-
+    checkPermissions();
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-      }
+      stopAllStreams();
     };
   }, []);
 
-  const loadQuestion = async () => {
-    try {
-      const data = await getTestSetupData(moduleNum);
-      if (data.questions && data.questions.length > 0) {
-        setQuestion(data.questions[0].question);
-      }
-    } catch (error) {
-      setQuestion('Question could not be loaded');
+  const stopAllStreams = () => {
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach((track) => track.stop());
+    }
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach((track) => track.stop());
     }
   };
 
-  const setupCamera = async () => {
+  const checkPermissions = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+      // Request camera
+      cameraStreamRef.current = await navigator.mediaDevices.getUserMedia({ video: true });
+      // Request microphone
+      micStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      if (videoRef.current && cameraStreamRef.current) {
+        videoRef.current.srcObject = cameraStreamRef.current;
+      }
+
+      setPermissionsGranted(true);
+      loadQuestions();
+    } catch (error) {
+      toast.error('Camera & Microphone access required for assessment');
+      onClose();
+    }
+  };
+
+  const loadQuestions = async () => {
+    try {
+      const data = await getTestSetupData(moduleNum);
+      if (data.questions && data.questions.length > 0) {
+        setQuestions(data.questions);
+      } else {
+        setQuestions([{ question: `Default Question for Module ${moduleNum}` }]);
       }
     } catch (error) {
-      console.error('Camera access denied');
+      setQuestions([{ question: 'Question could not be loaded' }]);
     }
   };
 
@@ -72,20 +90,20 @@ const Assessment: React.FC<AssessmentProps> = ({
   };
 
   const startRecording = () => {
-    if (!streamRef.current) return;
+    if (!micStreamRef.current) return;
 
-    chunksRef.current = [];
-    const mediaRecorder = new MediaRecorder(streamRef.current);
+    audioChunksRef.current = [];
+    const mediaRecorder = new MediaRecorder(micStreamRef.current);
     mediaRecorderRef.current = mediaRecorder;
 
     mediaRecorder.ondataavailable = (e) => {
       if (e.data.size > 0) {
-        chunksRef.current.push(e.data);
+        audioChunksRef.current.push(e.data);
       }
     };
 
     mediaRecorder.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+      const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
       setAudioBlob(blob);
       setAudioUrl(URL.createObjectURL(blob));
     };
@@ -95,7 +113,7 @@ const Assessment: React.FC<AssessmentProps> = ({
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current) {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     }
@@ -108,25 +126,78 @@ const Assessment: React.FC<AssessmentProps> = ({
     }
 
     setSubmitting(true);
-    try {
-      // Convert blob to base64
-      const reader = new FileReader();
-      reader.readAsDataURL(audioBlob);
-      reader.onloadend = async () => {
-        const base64 = (reader.result as string).split(',')[1];
 
-        await saveAssessmentResult(traineeId, traineeName, moduleNum, null, {
-          data: base64,
+    try {
+      // Start camera recording for verification
+      cameraChunksRef.current = [];
+      
+      let videoBlob: Blob | null = null;
+      
+      if (cameraStreamRef.current) {
+        cameraRecorderRef.current = new MediaRecorder(cameraStreamRef.current);
+        
+        cameraRecorderRef.current.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            cameraChunksRef.current.push(e.data);
+          }
+        };
+
+        // Create a promise for camera recording
+        const cameraPromise = new Promise<Blob>((resolve) => {
+          cameraRecorderRef.current!.onstop = () => {
+            const blob = new Blob(cameraChunksRef.current, { type: 'video/webm' });
+            resolve(blob);
+          };
         });
 
-        toast.success('Assessment submitted successfully!');
-        onClose();
-      };
+        cameraRecorderRef.current.start();
+        
+        // Record for 1.5 seconds
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        cameraRecorderRef.current.stop();
+        
+        videoBlob = await cameraPromise;
+      }
+
+      // Convert blobs to base64
+      const audioBase64 = await blobToBase64(audioBlob);
+      const videoBase64 = videoBlob ? await blobToBase64(videoBlob) : null;
+
+      await saveAssessmentResult(
+        traineeId,
+        traineeName,
+        moduleNum,
+        videoBase64 ? { data: videoBase64 } : null,
+        { data: audioBase64 }
+      );
+
+      toast.success('Assessment submitted successfully!');
+      stopAllStreams();
+      onComplete();
     } catch (error) {
       toast.error('Failed to submit assessment');
       setSubmitting(false);
     }
   };
+
+  const blobToBase64 = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = () => {
+        const base64 = (reader.result as string).split(',')[1];
+        resolve(base64);
+      };
+      reader.onerror = reject;
+    });
+  };
+
+  const handleExit = () => {
+    stopAllStreams();
+    onClose();
+  };
+
+  const currentQuestion = questions[currentIndex]?.question || 'Loading Question...';
 
   return (
     <div className="fixed inset-0 bg-slate-100 z-50 overflow-y-auto">
@@ -134,7 +205,7 @@ const Assessment: React.FC<AssessmentProps> = ({
       <div className="bg-white py-4 px-10 border-b border-slate-200 flex justify-between items-center">
         <div className="font-bold text-lms-primary text-lg">Assessment In Progress</div>
         <button
-          onClick={onClose}
+          onClick={handleExit}
           className="text-slate-500 bg-transparent border-none font-semibold cursor-pointer text-sm hover:text-slate-700"
         >
           ✕ Cancel
@@ -144,19 +215,24 @@ const Assessment: React.FC<AssessmentProps> = ({
       {/* Content */}
       <div className="max-w-3xl mx-auto py-10 px-5">
         <div className="lms-card text-center py-12">
+          {/* Question */}
           <div className="mb-10">
             <h2 className="text-2xl font-bold text-lms-primary mb-3">Question</h2>
             <div className="text-xl font-medium text-slate-700 leading-relaxed">
-              {question}
+              {currentQuestion}
             </div>
           </div>
 
+          {/* Recording Controls */}
           <div className="flex flex-col items-center gap-5">
             <button
               onClick={toggleRecording}
-              className={`w-20 h-20 rounded-full border-2 text-3xl cursor-pointer transition-all flex items-center justify-center ${
+              disabled={!permissionsGranted}
+              className={`w-20 h-20 rounded-full border-2 text-3xl cursor-pointer transition-all flex items-center justify-center disabled:opacity-50 ${
                 isRecording
-                  ? 'bg-red-500 border-red-500 text-white animate-pulse'
+                  ? 'bg-red-100 border-red-500 text-red-500 animate-pulse'
+                  : audioBlob
+                  ? 'bg-green-100 border-green-500 text-green-500'
                   : 'bg-red-50 border-red-500 text-red-500 hover:bg-red-100'
               }`}
             >
@@ -164,7 +240,11 @@ const Assessment: React.FC<AssessmentProps> = ({
             </button>
 
             <div className="text-slate-400 font-semibold text-sm uppercase tracking-wider">
-              {isRecording ? 'Recording... Click to Stop' : 'Click to Record'}
+              {isRecording
+                ? 'Recording... Click to Stop'
+                : audioBlob
+                ? 'Recording Complete ✓'
+                : 'Click to Record'}
             </div>
 
             {audioUrl && (
@@ -172,6 +252,7 @@ const Assessment: React.FC<AssessmentProps> = ({
             )}
           </div>
 
+          {/* Submit Button */}
           <div className="mt-10 pt-8 border-t border-slate-100">
             <button
               onClick={handleSubmit}
