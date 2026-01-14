@@ -11,22 +11,36 @@ import type {
   ApiResponse,
 } from '@/types/lms';
 
-const BASE_URL = 'http://localhost:5000/api'; // Update this to your Python backend URL
+const BASE_URL = '/api'; // Uses Vite dev-server proxy in local dev
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE_URL}${endpoint}`, {
     headers: {
+      Accept: 'application/json',
       'Content-Type': 'application/json',
       ...options?.headers,
     },
     ...options,
   });
-  
+
+  const raw = await response.text();
+  const data = raw ? ((): unknown => {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return raw;
+    }
+  })() : null;
+
   if (!response.ok) {
-    throw new Error(`API Error: ${response.statusText}`);
+    const message =
+      (typeof data === 'object' && data && ('message' in data || 'error' in data))
+        ? String((data as any).message ?? (data as any).error)
+        : response.statusText || 'Request failed';
+    throw new Error(`${response.status}: ${message}`);
   }
-  
-  return response.json();
+
+  return (data as T) ?? ({} as T);
 }
 
 // Authentication

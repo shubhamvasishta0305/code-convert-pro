@@ -26,7 +26,11 @@ const LoginForm: React.FC<LoginFormProps> = ({ onToggle }) => {
         toast.error(result.message || 'Invalid credentials');
       }
     } catch (error) {
-      toast.error('Login failed. Check your backend connection.');
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Login failed. Check your backend connection.';
+      toast.error(message);
     } finally {
       setLoading(false);
     }

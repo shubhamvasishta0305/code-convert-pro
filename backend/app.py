@@ -41,7 +41,9 @@ def get_sheets_client():
     global gc, spreadsheet
     if gc is None:
         try:
-            creds = Credentials.from_service_account_file('credentials.json', scopes=SCOPES)
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            creds_path = os.path.join(base_dir, 'credentials.json')
+            creds = Credentials.from_service_account_file(creds_path, scopes=SCOPES)
             gc = gspread.authorize(creds)
             spreadsheet = gc.open_by_key(SPREADSHEET_ID)
         except FileNotFoundError:
