@@ -37,9 +37,14 @@ gc = None
 spreadsheet = None
 
 def get_sheets_client():
-    """Initialize Google Sheets client with service account"""
+    """Initialize Google Sheets client with service account.
+
+    Important: if a previous init partially succeeded (e.g. authorized but couldn't open the sheet),
+    `gc` may be set while `spreadsheet` is still None. So we re-init when either is missing.
+    """
     global gc, spreadsheet
-    if gc is None:
+
+    if gc is None or spreadsheet is None:
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))
             creds_path = os.path.join(base_dir, 'credentials.json')
@@ -47,10 +52,23 @@ def get_sheets_client():
             gc = gspread.authorize(creds)
             spreadsheet = gc.open_by_key(SPREADSHEET_ID)
         except FileNotFoundError:
+            gc = None
+            spreadsheet = None
             print("⚠️  credentials.json not found!")
             print("   Please add your Google Service Account credentials.")
             print("   See PYTHON_BACKEND_README.md for setup instructions.")
             raise Exception("Google credentials not configured")
+        except Exception as e:
+            # Reset so the next request can retry after the user fixes permissions/APIs.
+            gc = None
+            spreadsheet = None
+            raise Exception(
+                "Google Sheets connection failed. "
+                "Make sure: (1) Sheet is shared with service account email as Editor, "
+                "(2) Google Sheets API + Drive API enabled, (3) Spreadsheet ID is correct. "
+                f"Original error: {e}"
+            )
+
     return spreadsheet
 
 def get_sheet(sheet_name):
@@ -659,8 +677,10 @@ def serve_upload(filename):
 def health_check():
     """Check if API and Google Sheets connection is working"""
     try:
-        get_sheets_client()
-        return jsonify({'status': 'ok', 'message': 'Connected to Google Sheets', 'spreadsheet_id': SPREADSHEET_ID})
+        ss = get_sheets_client()
+        # Touch the API to ensure it's not a half-initialized None.
+        title = ss.title
+        return jsonify({'status': 'ok', 'message': 'Connected to Google Sheets', 'spreadsheet_id': SPREADSHEET_ID, 'spreadsheet_title': title})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
