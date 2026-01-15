@@ -105,6 +105,33 @@ export const addSingleTrainee = (data: {
     body: JSON.stringify(data),
   });
 
+export const bulkAddTrainees = (
+  batchCode: string,
+  trainees: Array<{ name: string; mobile?: string; email?: string }>
+): Promise<{ status: string; added: number }> =>
+  request('/trainees/bulk', {
+    method: 'POST',
+    body: JSON.stringify({ batchCode, trainees }),
+  });
+
+export const parseCSVFile = async (
+  file: File
+): Promise<{ status: string; trainees: Array<{ name: string; mobile: string; email: string }> }> => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${BASE_URL}/trainees/parse-csv`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.message || 'Failed to parse CSV');
+  }
+  return data;
+};
+
 export const getTraineeDetails = (traineeId: string): Promise<{ status: string } & TraineeDetails> =>
   request(`/trainees/${traineeId}`);
 
