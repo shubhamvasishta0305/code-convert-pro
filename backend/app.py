@@ -9,8 +9,12 @@ from datetime import datetime
 import uuid
 import os
 import base64
+import io
+import csv
 import gspread
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
 
 app = Flask(__name__)
 CORS(app)
@@ -32,9 +36,11 @@ SHEET_STRUCTURE = {
     'Results': ['Result ID', 'Trainee ID', 'Trainee Name', 'Module Number', 'Video Link', 'Audio Link', 'Attempt Count', 'Score', 'Timestamp']
 }
 
-# Global client
+# Global clients
 gc = None
 spreadsheet = None
+drive_service = None
+DRIVE_FOLDER_NAME = "LMS_Uploads"
 
 def get_sheets_client():
     """Initialize Google Sheets client with service account.
@@ -70,6 +76,77 @@ def get_sheets_client():
             )
 
     return spreadsheet
+
+def get_drive_service():
+    """Initialize Google Drive service for file uploads"""
+    global drive_service
+    
+    if drive_service is None:
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            creds_path = os.path.join(base_dir, 'credentials.json')
+            creds = Credentials.from_service_account_file(creds_path, scopes=SCOPES)
+            drive_service = build('drive', 'v3', credentials=creds)
+        except Exception as e:
+            print(f"Drive service init error: {e}")
+            raise Exception(f"Google Drive connection failed: {e}")
+    
+    return drive_service
+
+def get_or_create_drive_folder():
+    """Get or create the LMS_Uploads folder in Google Drive"""
+    try:
+        service = get_drive_service()
+        
+        # Search for existing folder
+        query = f"name='{DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        results = service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
+        folders = results.get('files', [])
+        
+        if folders:
+            return folders[0]['id']
+        
+        # Create folder if not exists
+        folder_metadata = {
+            'name': DRIVE_FOLDER_NAME,
+            'mimeType': 'application/vnd.google-apps.folder'
+        }
+        folder = service.files().create(body=folder_metadata, fields='id').execute()
+        return folder.get('id')
+    except Exception as e:
+        print(f"Drive folder error: {e}")
+        raise Exception(f"Failed to get/create Drive folder: {e}")
+
+def upload_to_drive(base64_data, filename, mime_type):
+    """Upload file to Google Drive and return shareable link (like uploadToDrive in Code.gs)"""
+    try:
+        service = get_drive_service()
+        folder_id = get_or_create_drive_folder()
+        
+        # Decode base64 data
+        file_data = base64.b64decode(base64_data)
+        
+        # Create file metadata
+        file_metadata = {
+            'name': filename,
+            'parents': [folder_id]
+        }
+        
+        # Upload file
+        media = MediaIoBaseUpload(io.BytesIO(file_data), mimetype=mime_type)
+        file = service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
+        
+        # Make file accessible to anyone with link
+        permission = {
+            'type': 'anyone',
+            'role': 'reader'
+        }
+        service.permissions().create(fileId=file.get('id'), body=permission).execute()
+        
+        return file.get('webViewLink')
+    except Exception as e:
+        print(f"Drive upload error: {e}")
+        return f"Error: {e}"
 
 def get_sheet(sheet_name):
     """Get a specific sheet, create if not exists (like checkDatabase in Code.gs)"""
@@ -386,6 +463,76 @@ def add_trainee():
         print(f"Add trainee error: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+@app.route('/api/trainees/bulk', methods=['POST'])
+def bulk_add_trainees():
+    """Bulk add trainees from CSV data"""
+    try:
+        data = request.json
+        batch_code = data.get('batchCode')
+        trainees_data = data.get('trainees', [])
+        
+        if not batch_code:
+            return jsonify({'status': 'error', 'message': 'Batch code is required'}), 400
+        
+        if not trainees_data:
+            return jsonify({'status': 'error', 'message': 'No trainees data provided'}), 400
+        
+        sheet = get_sheet('Trainees')
+        added_count = 0
+        
+        for t in trainees_data:
+            name = t.get('name', '').strip()
+            if name:  # Only add if name is not empty
+                trainee_row = [
+                    generate_id(),
+                    batch_code,
+                    name,
+                    t.get('mobile', 'N/A').strip() or 'N/A',
+                    t.get('email', 'N/A').strip() or 'N/A',
+                    datetime.now().isoformat()
+                ]
+                sheet.append_row(trainee_row)
+                added_count += 1
+        
+        return jsonify({'status': 'success', 'added': added_count})
+    except Exception as e:
+        print(f"Bulk add trainees error: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/trainees/parse-csv', methods=['POST'])
+def parse_csv():
+    """Parse CSV file and return trainees data"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'status': 'error', 'message': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'status': 'error', 'message': 'No file selected'}), 400
+        
+        # Read CSV content
+        content = file.read().decode('utf-8')
+        reader = csv.DictReader(io.StringIO(content))
+        
+        trainees = []
+        for row in reader:
+            # Handle different possible column names
+            name = row.get('student name') or row.get('Student Name') or row.get('name') or row.get('Name') or ''
+            mobile = row.get('Mobile number') or row.get('mobile number') or row.get('Mobile') or row.get('mobile') or row.get('Phone') or row.get('phone') or ''
+            email = row.get('E-mail id') or row.get('e-mail id') or row.get('Email') or row.get('email') or row.get('E-mail') or row.get('e-mail') or ''
+            
+            if name.strip():
+                trainees.append({
+                    'name': name.strip(),
+                    'mobile': mobile.strip(),
+                    'email': email.strip()
+                })
+        
+        return jsonify({'status': 'success', 'trainees': trainees})
+    except Exception as e:
+        print(f"Parse CSV error: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @app.route('/api/trainees/<trainee_id>', methods=['GET'])
 def get_trainee_details(trainee_id):
     """Get trainee details with stats (same as getTraineeDetails in Code.gs)"""
@@ -537,7 +684,7 @@ def get_questions(module_index):
 
 @app.route('/api/assessments/results', methods=['POST'])
 def save_result():
-    """Save assessment result (same as saveAssessmentResult in Code.gs)"""
+    """Save assessment result with Google Drive upload (same as saveAssessmentResult in Code.gs)"""
     try:
         data = request.json
         trainee_id = data.get('traineeId')
@@ -553,26 +700,19 @@ def save_result():
             if len(row) >= 4 and row[1] == trainee_id and str(row[3]) == str(module_num):
                 attempts += 1
         
-        # Handle file uploads (save locally like uploadToDrive in Code.gs)
+        # Upload to Google Drive (same as uploadToDrive in Code.gs)
         video_link = 'Skipped'
         audio_link = 'Skipped'
         
-        upload_dir = 'uploads'
-        os.makedirs(upload_dir, exist_ok=True)
-        
         if data.get('videoData') and data['videoData'].get('data'):
-            video_filename = f"{trainee_name}_M{module_num}_Vid_{attempts}.webm"
-            video_path = os.path.join(upload_dir, video_filename)
-            with open(video_path, 'wb') as f:
-                f.write(base64.b64decode(data['videoData']['data']))
-            video_link = f"/uploads/{video_filename}"
+            video_filename = f"{trainee_name}_M{module_num}_Vid.webm"
+            video_link = upload_to_drive(data['videoData']['data'], video_filename, 'video/webm')
+            print(f"Video uploaded: {video_link}")
         
         if data.get('audioData') and data['audioData'].get('data'):
-            audio_filename = f"{trainee_name}_M{module_num}_Aud_{attempts}.webm"
-            audio_path = os.path.join(upload_dir, audio_filename)
-            with open(audio_path, 'wb') as f:
-                f.write(base64.b64decode(data['audioData']['data']))
-            audio_link = f"/uploads/{audio_filename}"
+            audio_filename = f"{trainee_name}_M{module_num}_Aud.webm"
+            audio_link = upload_to_drive(data['audioData']['data'], audio_filename, 'audio/webm')
+            print(f"Audio uploaded: {audio_link}")
         
         # Add result to sheet
         result_row = [
