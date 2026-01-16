@@ -40,6 +40,10 @@ SHEET_STRUCTURE = {
 gc = None
 spreadsheet = None
 drive_service = None
+
+# Optional: set this env var to force uploads into a specific folder that YOU own
+# (recommended if you want files to appear in your own Drive rather than only the service account drive)
+DRIVE_UPLOAD_FOLDER_ID = os.environ.get("DRIVE_UPLOAD_FOLDER_ID") or None
 DRIVE_FOLDER_NAME = "LMS_Uploads"
 
 def get_sheets_client():
@@ -93,60 +97,125 @@ def get_drive_service():
     
     return drive_service
 
-def get_or_create_drive_folder():
-    """Get or create the LMS_Uploads folder in Google Drive"""
+def _strip_data_url_base64(value: str) -> str:
+    """Allow either raw base64 OR a full data URL; return raw base64."""
+    if not value:
+        return value
+    v = value.strip()
+    if v.startswith("data:") and "," in v:
+        return v.split(",", 1)[1]
+    return v
+
+
+def _fix_base64_padding(value: str) -> str:
+    v = value.strip()
+    missing = len(v) % 4
+    return v + ("=" * (4 - missing)) if missing else v
+
+
+def _safe_filename(value: str) -> str:
+    v = (value or "").strip()
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.() ")
+    cleaned = "".join(ch if ch in allowed else "_" for ch in v)
+    cleaned = cleaned.strip().replace(" ", "_")
+    return cleaned or "file"
+
+
+def get_or_create_drive_folder() -> str:
+    """Return folder ID for uploads.
+
+    - If DRIVE_UPLOAD_FOLDER_ID env var is set, we always use it.
+    - Otherwise we create/use a folder named DRIVE_FOLDER_NAME in the service account's Drive.
+    """
+    if DRIVE_UPLOAD_FOLDER_ID:
+        return DRIVE_UPLOAD_FOLDER_ID
+
     try:
         service = get_drive_service()
-        
-        # Search for existing folder
-        query = f"name='{DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        results = service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
-        folders = results.get('files', [])
-        
+
+        query = (
+            f"name='{DRIVE_FOLDER_NAME}' "
+            "and mimeType='application/vnd.google-apps.folder' "
+            "and trashed=false"
+        )
+        results = service.files().list(
+            q=query,
+            spaces="drive",
+            fields="files(id, name)",
+            pageSize=10,
+            includeItemsFromAllDrives=True,
+            supportsAllDrives=True,
+        ).execute()
+        folders = results.get("files", [])
         if folders:
-            return folders[0]['id']
-        
-        # Create folder if not exists
+            return folders[0]["id"]
+
         folder_metadata = {
-            'name': DRIVE_FOLDER_NAME,
-            'mimeType': 'application/vnd.google-apps.folder'
+            "name": DRIVE_FOLDER_NAME,
+            "mimeType": "application/vnd.google-apps.folder",
         }
-        folder = service.files().create(body=folder_metadata, fields='id').execute()
-        return folder.get('id')
+        folder = service.files().create(
+            body=folder_metadata,
+            fields="id",
+            supportsAllDrives=True,
+        ).execute()
+        return folder.get("id")
     except Exception as e:
         print(f"Drive folder error: {e}")
         raise Exception(f"Failed to get/create Drive folder: {e}")
 
-def upload_to_drive(base64_data, filename, mime_type):
-    """Upload file to Google Drive and return shareable link (like uploadToDrive in Code.gs)"""
+
+def upload_to_drive(base64_data: str, filename: str, mime_type: str) -> str:
+    """Upload a base64 file to Google Drive and return a public webViewLink."""
+    service = get_drive_service()
+    folder_id = get_or_create_drive_folder()
+
+    raw_b64 = _fix_base64_padding(_strip_data_url_base64(base64_data))
+
     try:
-        service = get_drive_service()
-        folder_id = get_or_create_drive_folder()
-        
-        # Decode base64 data
-        file_data = base64.b64decode(base64_data)
-        
-        # Create file metadata
-        file_metadata = {
-            'name': filename,
-            'parents': [folder_id]
-        }
-        
-        # Upload file
-        media = MediaIoBaseUpload(io.BytesIO(file_data), mimetype=mime_type)
-        file = service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
-        
-        # Make file accessible to anyone with link
-        permission = {
-            'type': 'anyone',
-            'role': 'reader'
-        }
-        service.permissions().create(fileId=file.get('id'), body=permission).execute()
-        
-        return file.get('webViewLink')
+        file_data = base64.b64decode(raw_b64)
     except Exception as e:
-        print(f"Drive upload error: {e}")
-        return f"Error: {e}"
+        raise Exception(f"Invalid base64 data: {e}")
+
+    safe_name = _safe_filename(filename)
+
+    file_metadata = {
+        "name": safe_name,
+        "parents": [folder_id],
+    }
+
+    media = MediaIoBaseUpload(io.BytesIO(file_data), mimetype=mime_type, resumable=True)
+
+    created = service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields="id",
+        supportsAllDrives=True,
+    ).execute()
+
+    file_id = created.get("id")
+    if not file_id:
+        raise Exception("Drive upload failed: missing file id")
+
+    # Public read access (anyone with link)
+    service.permissions().create(
+        fileId=file_id,
+        body={"type": "anyone", "role": "reader"},
+        fields="id",
+        supportsAllDrives=True,
+    ).execute()
+
+    info = service.files().get(
+        fileId=file_id,
+        fields="webViewLink, webContentLink",
+        supportsAllDrives=True,
+    ).execute()
+
+    link = info.get("webViewLink") or info.get("webContentLink")
+    if not link:
+        raise Exception("Drive upload succeeded but no share link was returned")
+
+    return link
 
 def get_sheet(sheet_name):
     """Get a specific sheet, create if not exists (like checkDatabase in Code.gs)"""
@@ -703,17 +772,20 @@ def save_result():
         # Upload to Google Drive (same as uploadToDrive in Code.gs)
         video_link = 'Skipped'
         audio_link = 'Skipped'
-        
+
+        safe_name = _safe_filename(trainee_name or "trainee")
+        safe_module = _safe_filename(str(module_num))
+
         if data.get('videoData') and data['videoData'].get('data'):
-            video_filename = f"{trainee_name}_M{module_num}_Vid.webm"
+            video_filename = f"{safe_name}_M{safe_module}_Vid_{attempts}.webm"
             video_link = upload_to_drive(data['videoData']['data'], video_filename, 'video/webm')
             print(f"Video uploaded: {video_link}")
-        
+
         if data.get('audioData') and data['audioData'].get('data'):
-            audio_filename = f"{trainee_name}_M{module_num}_Aud.webm"
+            audio_filename = f"{safe_name}_M{safe_module}_Aud_{attempts}.webm"
             audio_link = upload_to_drive(data['audioData']['data'], audio_filename, 'audio/webm')
             print(f"Audio uploaded: {audio_link}")
-        
+
         # Add result to sheet
         result_row = [
             generate_id('RES-'),
