@@ -175,7 +175,8 @@ const Assessment: React.FC<AssessmentProps> = ({
       stopAllStreams();
       onComplete();
     } catch (error) {
-      toast.error('Failed to submit assessment');
+      const message = error instanceof Error ? error.message : 'Failed to submit assessment';
+      toast.error(message);
       setSubmitting(false);
     }
   };
