@@ -41,9 +41,9 @@ gc = None
 spreadsheet = None
 drive_service = None
 
-# Optional: set this env var to force uploads into a specific folder that YOU own
-# (recommended if you want files to appear in your own Drive rather than only the service account drive)
-DRIVE_UPLOAD_FOLDER_ID = os.environ.get("DRIVE_UPLOAD_FOLDER_ID") or None
+# Google Drive folder ID for uploads (set your folder ID here or via env var)
+# Make sure this folder is shared with your service account email as Editor
+DRIVE_UPLOAD_FOLDER_ID = os.environ.get("DRIVE_UPLOAD_FOLDER_ID") or "18YQhutQfTfVtO8PFLODS3rt_iCtYMHlX"
 DRIVE_FOLDER_NAME = "LMS_Uploads"
 
 def get_sheets_client():
