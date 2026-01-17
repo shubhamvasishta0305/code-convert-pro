@@ -11,10 +11,12 @@ import os
 import base64
 import io
 import csv
+import re
 import gspread
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.errors import HttpError
 
 app = Flask(__name__)
 CORS(app)
@@ -42,8 +44,31 @@ spreadsheet = None
 drive_service = None
 
 # Google Drive folder ID for uploads (set your folder ID here or via env var)
-# Make sure this folder is shared with your service account email as Editor
-DRIVE_UPLOAD_FOLDER_ID = os.environ.get("DRIVE_UPLOAD_FOLDER_ID") or "18YQhutQfTfVtO8PFLODS3rt_iCtYMHlX"
+# NOTE: People often paste it as "<FOLDER_ID>" or as a full Drive URL; we normalize that.
+# Make sure this folder is shared with your service account email as Editor.
+
+def _normalize_drive_folder_id(value):
+    if not value:
+        return None
+    v = str(value).strip().strip('"').strip("'").strip()
+    v = v.strip("<>").strip()
+
+    # Allow full URL like: https://drive.google.com/drive/folders/<id>
+    m = re.search(r"/folders/([a-zA-Z0-9_-]+)", v)
+    if m:
+        return m.group(1)
+
+    # Allow URL query like: ...?id=<id>
+    m = re.search(r"[?&]id=([a-zA-Z0-9_-]+)", v)
+    if m:
+        return m.group(1)
+
+    return v or None
+
+DRIVE_UPLOAD_FOLDER_ID = (
+    _normalize_drive_folder_id(os.environ.get("DRIVE_UPLOAD_FOLDER_ID"))
+    or "18YQhutQfTfVtO8PFLODS3rt_iCtYMHlX"
+)
 DRIVE_FOLDER_NAME = "LMS_Uploads"
 
 def get_sheets_client():
@@ -124,11 +149,26 @@ def _safe_filename(value: str) -> str:
 def get_or_create_drive_folder() -> str:
     """Return folder ID for uploads.
 
-    - If DRIVE_UPLOAD_FOLDER_ID env var is set, we always use it.
+    - If DRIVE_UPLOAD_FOLDER_ID is set, we use it.
     - Otherwise we create/use a folder named DRIVE_FOLDER_NAME in the service account's Drive.
     """
     if DRIVE_UPLOAD_FOLDER_ID:
-        return DRIVE_UPLOAD_FOLDER_ID
+        folder_id = DRIVE_UPLOAD_FOLDER_ID
+        try:
+            # Validate the folder is accessible to the service account.
+            service = get_drive_service()
+            service.files().get(
+                fileId=folder_id,
+                fields="id",
+                supportsAllDrives=True,
+            ).execute()
+        except HttpError as e:
+            raise Exception(
+                f"Configured Drive folder not accessible (DRIVE_UPLOAD_FOLDER_ID={folder_id}). "
+                "Share the folder with the service account email as Editor. "
+                f"Drive error: {e}"
+            )
+        return folder_id
 
     try:
         service = get_drive_service()
@@ -186,30 +226,41 @@ def upload_to_drive(base64_data: str, filename: str, mime_type: str) -> str:
 
     media = MediaIoBaseUpload(io.BytesIO(file_data), mimetype=mime_type, resumable=True)
 
-    created = service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields="id",
-        supportsAllDrives=True,
-    ).execute()
+    try:
+        created = service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields="id",
+            supportsAllDrives=True,
+        ).execute()
+    except HttpError as e:
+        raise Exception(f"Drive upload failed while creating file in folder {folder_id}: {e}")
 
     file_id = created.get("id")
     if not file_id:
         raise Exception("Drive upload failed: missing file id")
 
-    # Public read access (anyone with link)
-    service.permissions().create(
-        fileId=file_id,
-        body={"type": "anyone", "role": "reader"},
-        fields="id",
-        supportsAllDrives=True,
-    ).execute()
+    # Try to make it public (anyone with link). If your Google Workspace blocks this,
+    # we continue anyway so the link can still be saved to the sheet.
+    try:
+        service.permissions().create(
+            fileId=file_id,
+            body={"type": "anyone", "role": "reader"},
+            fields="id",
+            sendNotificationEmail=False,
+            supportsAllDrives=True,
+        ).execute()
+    except HttpError as e:
+        print(f"⚠️  Could not set public permission for {file_id}: {e}")
 
-    info = service.files().get(
-        fileId=file_id,
-        fields="webViewLink, webContentLink",
-        supportsAllDrives=True,
-    ).execute()
+    try:
+        info = service.files().get(
+            fileId=file_id,
+            fields="webViewLink, webContentLink",
+            supportsAllDrives=True,
+        ).execute()
+    except HttpError as e:
+        raise Exception(f"Drive upload succeeded but failed to fetch share link: {e}")
 
     link = info.get("webViewLink") or info.get("webContentLink")
     if not link:
