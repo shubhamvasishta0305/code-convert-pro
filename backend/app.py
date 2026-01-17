@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Einstein360 LMS - Python Flask Backend
 Connects to Google Sheets for data storage (same as original Code.gs)
@@ -89,7 +90,7 @@ def get_sheets_client():
         except FileNotFoundError:
             gc = None
             spreadsheet = None
-            print("⚠️  credentials.json not found!")
+            print("credentials.json not found!")
             print("   Please add your Google Service Account credentials.")
             print("   See PYTHON_BACKEND_README.md for setup instructions.")
             raise Exception("Google credentials not configured")
@@ -251,7 +252,7 @@ def upload_to_drive(base64_data: str, filename: str, mime_type: str) -> str:
             supportsAllDrives=True,
         ).execute()
     except HttpError as e:
-        print(f"⚠️  Could not set public permission for {file_id}: {e}")
+        print(f"Could not set public permission for {file_id}: {e}")
 
     try:
         info = service.files().get(
@@ -455,7 +456,7 @@ def invite_trainer():
         
         # Note: Email sending requires SMTP setup
         # For now, return success with setup link info
-        print(f"📧 Invitation for {email}: /auth?mode=setup&email={email}")
+        print(f"Invitation for {email}: /auth?mode=setup&email={email}")
         
         return jsonify({'status': 'success'})
     except Exception as e:
@@ -947,19 +948,44 @@ def health_check():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+# ==================== DRIVE DIAGNOSTICS ====================
+
+@app.route('/api/drive/diagnostics', methods=['GET'])
+def drive_diagnostics():
+    """Validate Drive credentials + upload folder access."""
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        creds_path = os.path.join(base_dir, 'credentials.json')
+        creds = Credentials.from_service_account_file(creds_path, scopes=SCOPES)
+        service_account_email = getattr(creds, 'service_account_email', None)
+
+        # Init Drive client + validate folder access
+        _ = get_drive_service()
+        folder_id = get_or_create_drive_folder()
+
+        return jsonify({
+            'status': 'ok',
+            'service_account_email': service_account_email,
+            'upload_folder_id': folder_id,
+            'spreadsheet_id': SPREADSHEET_ID,
+        })
+    except Exception as e:
+        print(f"Drive diagnostics error: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 if __name__ == '__main__':
     print("=" * 60)
-    print("🦉 Einstein360 LMS Backend")
+    print("Einstein360 LMS Backend")
     print("=" * 60)
-    print(f"📊 Spreadsheet ID: {SPREADSHEET_ID}")
+    print(f"Spreadsheet ID: {SPREADSHEET_ID}")
     print("")
     
     try:
         print("Connecting to Google Sheets...")
         check_database()
-        print("✅ Connected successfully!")
+        print("Connected successfully!")
     except Exception as e:
-        print(f"⚠️  Could not connect to Google Sheets: {e}")
+        print(f"Could not connect to Google Sheets: {e}")
         print("")
         print("To fix this:")
         print("1. Download credentials.json from Google Cloud Console")
@@ -969,6 +995,7 @@ if __name__ == '__main__':
         print("See PYTHON_BACKEND_README.md for detailed instructions")
     
     print("")
-    print("🚀 Starting server at http://localhost:5000")
+    print("Starting server at http://localhost:5000")
     print("=" * 60)
     app.run(host='0.0.0.0', port=5000, debug=True)
+
