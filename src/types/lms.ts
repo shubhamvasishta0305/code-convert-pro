@@ -4,7 +4,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  role: 'Owner' | 'Trainer';
+  role: 'Owner' | 'Trainer' | 'Trainee';
 }
 
 export interface Batch {

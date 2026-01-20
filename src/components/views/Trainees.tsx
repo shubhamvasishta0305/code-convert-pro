@@ -70,7 +70,28 @@ const Trainees: React.FC<TraineesProps> = ({ onStartAssessment }) => {
     return 'completed';
   };
 
-  const handleModuleClick = (modNum: string) => {
+  // Check if a module is unlocked (first module always unlocked, rest unlock after previous is completed)
+  const isModuleUnlocked = (modNum: string, allModules: (string | number)[]) => {
+    const modIndex = allModules.findIndex((m) => String(m) === modNum);
+    
+    // First module is always unlocked
+    if (modIndex === 0) return true;
+    
+    // Check if all previous modules are completed
+    for (let i = 0; i < modIndex; i++) {
+      const prevModNum = String(allModules[i]);
+      const status = getModuleStatus(prevModNum);
+      if (status !== 'completed') {
+        return false;
+      }
+    }
+    
+    return true;
+  };
+
+  const handleModuleClick = (modNum: string, allModules: (string | number)[]) => {
+    // Only allow clicking if module is unlocked
+    if (!isModuleUnlocked(modNum, allModules)) return;
     setSelectedModule(modNum === selectedModule ? null : modNum);
   };
 
@@ -164,19 +185,28 @@ const Trainees: React.FC<TraineesProps> = ({ onStartAssessment }) => {
                     <div className="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-4 py-4 px-1">
                       {cat.modules.map((mod) => {
                         const status = getModuleStatus(String(mod));
+                        const unlocked = isModuleUnlocked(String(mod), cat.modules);
                         return (
                           <div
                             key={mod}
-                            onClick={() => handleModuleClick(String(mod))}
+                            onClick={() => handleModuleClick(String(mod), cat.modules)}
                             className={cn(
-                              "bg-white border-2 border-slate-200 rounded-xl p-4 text-center cursor-pointer transition-all hover:border-lms-accent hover:-translate-y-1",
-                              selectedModule === String(mod) && "bg-lms-primary text-white border-lms-primary",
+                              "bg-white border-2 border-slate-200 rounded-xl p-4 text-center transition-all",
+                              unlocked 
+                                ? "cursor-pointer hover:border-lms-accent hover:-translate-y-1" 
+                                : "cursor-not-allowed opacity-50 bg-slate-100",
+                              selectedModule === String(mod) && unlocked && "bg-lms-primary text-white border-lms-primary",
                               status === 'completed' && "border-green-500",
                               status === 'in-progress' && "border-yellow-500"
                             )}
                           >
-                            <div className="text-2xl font-bold">{mod}</div>
-                            <div className="text-xs mt-1 opacity-70 capitalize">{status}</div>
+                            <div className="text-2xl font-bold flex items-center justify-center gap-1">
+                              {!unlocked && <span className="text-lg">🔒</span>}
+                              {mod}
+                            </div>
+                            <div className="text-xs mt-1 opacity-70 capitalize">
+                              {unlocked ? status : 'locked'}
+                            </div>
                           </div>
                         );
                       })}
